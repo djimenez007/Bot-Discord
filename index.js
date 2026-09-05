@@ -49,13 +49,42 @@ const shopPacks = [
   { id: "common", icon: SHOP_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR." },
 ];
 
-
 function getPackIconByOvr(ovr) {
   if (ovr >= 99) return PACK_ICONS.mythic;
   if (ovr >= 90) return PACK_ICONS.legendary;
   if (ovr >= 83) return PACK_ICONS.epic;
   if (ovr >= 75) return PACK_ICONS.rare;
   return PACK_ICONS.common;
+}
+
+// Sistema de efectos para Pasivas y Ultimates
+const SKILL_EFFECTS = {
+  // Pasivas
+  "Sniper": { sho: 10, pas: 0, dri: 0, def: 0, giq: 5, aer: 0 },
+  "Wall": { sho: 0, pas: 0, dri: 0, def: 15, giq: 0, aer: 10 },
+  "Playmaker": { sho: 0, pas: 15, dri: 10, def: 0, giq: 5, aer: 0 },
+  "Speedster": { sho: 5, pas: 0, dri: 15, def: 0, giq: 0, aer: 0 },
+
+  // Ultimates
+  "Thunder Strike": { sho: 25, pas: 0, dri: 0, def: 0, giq: 10, aer: 0, pos: ["cf", "lf", "rf"], type: "shoot" },
+  "Iron Defense": { sho: 0, pas: 0, dri: 0, def: 30, giq: 0, aer: 15, pos: ["lb", "rb"], type: "defense" },
+  "Golden Pass": { sho: 0, pas: 30, dri: 10, def: 0, giq: 10, aer: 0, pos: ["cm"], type: "pass" },
+  "Acrobatic Save": { sho: 0, pas: 0, dri: 0, def: 25, giq: 15, aer: 25, pos: ["gk"], type: "save" }
+};
+
+function getEffectiveStat(player, statName) {
+  if (!player) return 50;
+  let baseValue = player[statName] || 50;
+
+  if (player.passive && SKILL_EFFECTS[player.passive]) {
+    baseValue += SKILL_EFFECTS[player.passive][statName] || 0;
+  }
+
+  if (player.ultimate && SKILL_EFFECTS[player.ultimate]) {
+    baseValue += SKILL_EFFECTS[player.ultimate][statName] || 0;
+  }
+
+  return baseValue;
 }
 
 const client = new Client({
@@ -380,19 +409,21 @@ client.on("interactionCreate", async (interaction) => {
 
     const llamas = "<a:llamas:1545239096220192798>";
     const monedaIcon = "<:moneda:1545283928515022909>";
-    const habilities = "<:estrella:1545228638822203412>"
+    const habilities = "<:estrella:1545228638822203412>";
     const categoryStarsDisplay = getCategoryStars(card.category);
+    
+    const packIcon = getPackIconByOvr(card.overall);
 
     const embed = new EmbedBuilder()
-      .setTitle(`${llamas} You obtained ${card.name}!`)
+      .setTitle(`${llamas} You obtained ${card.name}! ${packIcon}`)
       .setColor("#FFD700")
       .addFields(
         { name: "POS", value: `\`${card.pos}\``, inline: true },
         { name: "OVR", value: `\`${card.overall}\``, inline: true },
         { name: "Rarity", value: `\`${card.rarity ? card.rarity.toUpperCase() : "N/A"}\``, inline: true },
         { name: "Category", value: `${categoryStarsDisplay}`, inline: true },
-        { name: `${habilities}Passive`, value: "`N/A`", inline: false },
-        { name: `${habilities}Ultimate`, value: "`N/A`", inline: false },
+        { name: `${habilities}Passive`, value: `\`${card.passive || "None"}\``, inline: false },
+        { name: `${habilities}Ultimate`, value: `\`${card.ultimate || "None"}\``, inline: false },
         {
           name: "Market Value",
           value: `${monedaIcon} \`${formatPrice(card.price)}\``,
@@ -415,7 +446,6 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.editReply({ embeds: [embed], files });
   }
 
-  // --- COMMAND /INVENTORY ---
   if (interaction.commandName === "inventory") {
     const inventoryIcon = "<:inventario:1545274824300044308>";
 
@@ -618,7 +648,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
- if (interaction.commandName === "match") {
+if (interaction.commandName === "match") {
     const homeUser = interaction.user;
     const awayUser = interaction.options.getUser("opponent");
 
@@ -650,8 +680,34 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    const getStat = (player, stat) => (player ? player[stat] || 50 : 50);
-    const getOverall = (player) => (player ? player.overall || 50 : 50);
+    // Calcula estadísticas base + bonificador silencioso por Pasiva
+    const getStat = (player, stat) => {
+      if (!player) return 0;
+      let baseStat = getEffectiveStat(player, stat);
+
+      if (player.passive) {
+        const passiveConfig = SKILL_EFFECTS[player.passive];
+        if (passiveConfig && passiveConfig.stats && passiveConfig.stats[stat]) {
+          baseStat += passiveConfig.stats[stat];
+        }
+      }
+
+      return baseStat;
+    };
+
+    const getOverall = (player) => {
+      if (!player) return 50;
+      let ovr = player.overall || 50;
+
+      if (player.passive) {
+        const passiveConfig = SKILL_EFFECTS[player.passive];
+        if (passiveConfig && passiveConfig.stats && passiveConfig.stats.overall) {
+          ovr += passiveConfig.stats.overall;
+        }
+      }
+
+      return ovr;
+    };
 
     const getTeamPower = (team) => {
       const mid =
@@ -698,7 +754,7 @@ client.on("interactionCreate", async (interaction) => {
 
           if (pos === "cf" && statName === "sho") weight *= 1.8;
 
-          return { card, weight };
+          return { card, weight, pos };
         });
 
       if (candidates.length === 0) return null;
@@ -707,10 +763,10 @@ client.on("interactionCreate", async (interaction) => {
       let random = Math.random() * totalWeight;
 
       for (const candidate of candidates) {
-        if (random < candidate.weight) return candidate.card;
+        if (random < candidate.weight) return { card: candidate.card, pos: candidate.pos };
         random -= candidate.weight;
       }
-      return candidates[0].card;
+      return { card: candidates[0].card, pos: candidates[0].pos };
     };
 
     const homePow = getTeamPower(homeTeam);
@@ -719,6 +775,9 @@ client.on("interactionCreate", async (interaction) => {
 
     const homeChance = homePow.mid / (homePow.mid + awayPow.mid);
 
+    // Variable para garantizar al menos 1 ulti por partido
+    let hasUltOccurred = false;
+
     for (let min = 1; min <= 90; min++) {
       if (Math.random() < 0.14) {
         const isHomeAttacking = Math.random() < homeChance;
@@ -726,21 +785,34 @@ client.on("interactionCreate", async (interaction) => {
         const defendingTeam = isHomeAttacking ? awayTeam : homeTeam;
         const defStats = isHomeAttacking ? awayPow : homePow;
 
-        const defender = selectPlayerByStatAndRating(defendingTeam, "def", ["lb", "rb", "cm"]);
+        const defenderObj = selectPlayerByStatAndRating(defendingTeam, "def", ["lb", "rb", "cm"]);
+        const defender = defenderObj ? defenderObj.card : null;
+        const defenderPos = defenderObj ? defenderObj.pos : null;
         const defScore = defender ? getStat(defender, "def") * 0.6 + getOverall(defender) * 0.4 : 30;
 
         if (defender && Math.random() < (defScore / 200)) {
-          const defEmoji = Math.random() < 0.5 ? "🧱" : "🛡️";
+          const ultConfig = defender.ultimate ? SKILL_EFFECTS[defender.ultimate] : null;
+          const ultChance = (!hasUltOccurred && min > 60) ? 1.0 : 0.60;
+          const isUltActive = defender.ultimate && ultConfig && ultConfig.type === "defense" && ultConfig.pos.includes(defenderPos) && Math.random() < ultChance;
+          let defEmoji = Math.random() < 0.5 ? "🧱" : "🛡️";
+          let ultText = "";
+
+          if (isUltActive) {
+            hasUltOccurred = true;
+            defEmoji = "<a:llamamorada:1545685043354279977>";
+            ultText = `<a:llamamorada:1545685043354279977> **${defender.ultimate}** `;
+          }
+
           allEvents.push({
             minute: min,
-            text: `\`${min}'\` ${defEmoji} **${defender.name}**`,
+            text: `\`${min}'\` ${defEmoji} ${ultText}**${defender.name}**`,
             type: "defense",
             team: isHomeAttacking ? "away" : "home",
           });
           continue;
         }
 
-        const shooter =
+        const shooterObj =
           selectPlayerByStatAndRating(attackingTeam, "sho", [
             "cf",
             "lf",
@@ -748,39 +820,89 @@ client.on("interactionCreate", async (interaction) => {
             "cm",
             "lb",
             "rb",
-          ]) || attackingTeam.cf;
+          ]) || { card: attackingTeam.cf, pos: "cf" };
+        
+        const shooter = shooterObj ? shooterObj.card : null;
+        const shooterPos = shooterObj ? shooterObj.pos : null;
         const gk = defendingTeam.gk;
 
         if (!shooter) continue;
 
-        const shooterQuality =
+        let assistantObj = selectPlayerByStatAndRating(attackingTeam, "pas", [
+          "cm",
+          "lf",
+          "rf",
+          "lb",
+          "rb",
+        ]);
+        if (assistantObj && assistantObj.card.card_id === shooter.card_id) assistantObj = null;
+
+        const assistant = assistantObj ? assistantObj.card : null;
+        const assistantPos = assistantObj ? assistantObj.pos : null;
+
+        const ultChancePass = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+        const ultChanceShoot = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+
+        const passUltConfig = assistant && assistant.ultimate ? SKILL_EFFECTS[assistant.ultimate] : null;
+        const isPassUltActive = assistant && assistant.ultimate && passUltConfig && passUltConfig.type === "pass" && passUltConfig.pos.includes(assistantPos) && Math.random() < ultChancePass;
+
+        const shootUltConfig = shooter.ultimate ? SKILL_EFFECTS[shooter.ultimate] : null;
+        const isShooterUlt = shooter.ultimate && shootUltConfig && shootUltConfig.type === "shoot" && shootUltConfig.pos.includes(shooterPos) && Math.random() < ultChanceShoot;
+        
+        if (isPassUltActive || isShooterUlt) {
+          hasUltOccurred = true;
+        }
+
+        let shooterQuality =
           getStat(shooter, "sho") * 0.6 + getOverall(shooter) * 0.4;
+        
+        if (isShooterUlt) {
+          shooterQuality += 20;
+        }
+        if (isPassUltActive) {
+          shooterQuality += 15;
+        }
+
         const shootPower = shooterQuality + (Math.random() * 16 - 8);
 
         const defensiveBlock = defStats.def / 10 + (Math.random() * 10 - 5);
         if (shootPower < defensiveBlock - 15) continue;
 
-        const gkQuality = gk
+        const gkUltConfig = gk && gk.ultimate ? SKILL_EFFECTS[gk.ultimate] : null;
+        const ultChanceGk = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+        const isGkUlt = gk && gk.ultimate && gkUltConfig && gkUltConfig.type === "save" && gkUltConfig.pos.includes("gk") && Math.random() < ultChanceGk;
+        
+        if (isGkUlt) {
+          hasUltOccurred = true;
+        }
+
+        let gkQuality = gk
           ? getStat(gk, "def") * 0.4 +
             getStat(gk, "aer") * 0.3 +
             getOverall(gk) * 0.3
           : 40;
+
+        if (isGkUlt) {
+          gkQuality += 20;
+        }
+
         const gkDefense = gkQuality + (Math.random() * 16 - 8);
 
         if (shootPower > gkDefense) {
-          let assistant = selectPlayerByStatAndRating(attackingTeam, "pas", [
-            "cm",
-            "lf",
-            "rf",
-            "lb",
-            "rb",
-          ]);
-          if (assistant && assistant.card_id === shooter.card_id)
-            assistant = null;
+          let text = "";
 
-          const text = assistant
-            ? `\`${min}'\` ⚽ **${shooter.name}** (${assistant.name})`
-            : `\`${min}'\` ⚽ **${shooter.name}**`;
+          if (isShooterUlt) {
+            text = assistant 
+              ? `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}** (${assistant.name})`
+              : `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}**`;
+          } else if (isPassUltActive) {
+            // Se inserta el "TO" entre el nombre de la ulti del pase y el rematador
+            text = `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${assistant.ultimate} To ${shooter.name}** (${assistant.name})`;
+          } else {
+            text = assistant
+              ? `\`${min}'\` ⚽ **${shooter.name}** (${assistant.name})`
+              : `\`${min}'\` ⚽ **${shooter.name}**`;
+          }
 
           allEvents.push({
             minute: min,
@@ -789,7 +911,15 @@ client.on("interactionCreate", async (interaction) => {
             team: isHomeAttacking ? "home" : "away",
           });
         } else if (gk && Math.random() < 0.6) {
-          const text = `\`${min}'\` 🧤 **${gk.name}**`;
+          let text = "";
+          if (isGkUlt) {
+            text = `\`${min}'\` 🧤 <a:llamamorada:1545685043354279977> **${gk.ultimate}** **${gk.name}**`;
+          } else if (isPassUltActive) {
+            text = `\`${min}'\` 🧤 **${gk.name}** Saved the shot after <a:llamamorada:1545685043354279977> **${assistant.ultimate} To ${shooter.name}**`;
+          } else {
+            text = `\`${min}'\` 🧤 **${gk.name}**`;
+          }
+
           allEvents.push({
             minute: min,
             text,
@@ -1076,124 +1206,124 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "shop") {
-  try {
-    const userId = interaction.user.id;
-    const buyInput = interaction.options.getString("buy");
+    try {
+      const userId = interaction.user.id;
+      const buyInput = interaction.options.getString("buy");
 
-    const coinIcon = "<:moneda:1545283928515022909>";
-    const timerIcon = "⌛";
-    const store = "<:tienda:1545274823201132575>";
+      const coinIcon = "<:moneda:1545283928515022909>";
+      const timerIcon = "⌛";
+      const store = "<:tienda:1545274823201132575>";
 
-    let user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
-    if (!user) {
-      db.prepare("INSERT INTO users (user_id, coins, last_claim) VALUES (?, ?, ?)").run(userId, 0, 0);
-      user = { user_id: userId, coins: 0, last_claim: 0 };
-    }
-
-    if (buyInput) {
-      const query = buyInput.trim().toLowerCase();
-
-      const selectedPack = shopPacks.find(
-        (p) => p.id.toLowerCase() === query || p.name.toLowerCase().includes(query)
-      );
-
-      if (!selectedPack) {
-        return interaction.reply({
-          content: `❌ \`${buyInput}\` is not a valid pack. Options: \`mythic\`, \`legendary\`, \`epic\`, \`rare\`, \`common\`.`,
-          flags: 64,
-        });
+      let user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
+      if (!user) {
+        db.prepare("INSERT INTO users (user_id, coins, last_claim) VALUES (?, ?, ?)").run(userId, 0, 0);
+        user = { user_id: userId, coins: 0, last_claim: 0 };
       }
 
-      if (user.coins < selectedPack.price) {
-        return interaction.reply({
-          content: `❌ Not enough coins. **${selectedPack.name}** costs ${coinIcon} \`${formatPrice(selectedPack.price)}\` and you have ${coinIcon} \`${formatPrice(user.coins)}\`.`,
-          flags: 64,
-        });
-      }
+      if (buyInput) {
+        const query = buyInput.trim().toLowerCase();
 
-      let availableCards = db
-        .prepare("SELECT * FROM cards WHERE overall BETWEEN ? AND ?")
-        .all(selectedPack.minOvr, selectedPack.maxOvr);
+        const selectedPack = shopPacks.find(
+          (p) => p.id.toLowerCase() === query || p.name.toLowerCase().includes(query)
+        );
 
-      if (!availableCards || availableCards.length === 0) {
-        return interaction.reply({
-          content: `❌ No cards registered in the database for the range [${selectedPack.minOvr} - ${selectedPack.maxOvr} OVR].`,
-          flags: 64,
-        });
-      }
-
-      const obtainedCard = availableCards[Math.floor(Math.random() * availableCards.length)];
-
-      db.prepare("UPDATE users SET coins = coins - ? WHERE user_id = ?").run(
-        selectedPack.price,
-        userId
-      );
-      db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
-        userId,
-        obtainedCard.card_id
-      );
-
-      const packIcon = getPackIconByOvr(obtainedCard.overall);
-
-      const cardEmbed = new EmbedBuilder()
-        .setTitle(`🎉 You opened a ${selectedPack.name}!`)
-        .setDescription(
-          `You pulled: **${obtainedCard.name}**!\n\n` +
-          `**Position:** \`${obtainedCard.pos}\`\n` +
-          `**Overall (OVR):** \`${obtainedCard.overall}\`\n` +
-          `**Market Value:** ${coinIcon} \`${formatPrice(obtainedCard.price)}\``
-        )
-        .setColor("#2B2D31");
-
-      const replyPayload = { embeds: [cardEmbed] };
-      const cardImage = obtainedCard.image_url || obtainedCard.image;
-
-      if (cardImage) {
-        if (cardImage.startsWith("http")) {
-          cardEmbed.setImage(cardImage);
-        } else {
-          const imagePath = path.join(__dirname, "assets", cardImage);
-          cardEmbed.setImage(`attachment://${cardImage}`);
-          replyPayload.files = [{ attachment: imagePath, name: cardImage }];
+        if (!selectedPack) {
+          return interaction.reply({
+            content: `❌ \`${buyInput}\` is not a valid pack. Options: \`mythic\`, \`legendary\`, \`epic\`, \`rare\`, \`common\`.`,
+            flags: 64,
+          });
         }
+
+        if (user.coins < selectedPack.price) {
+          return interaction.reply({
+            content: `❌ Not enough coins. **${selectedPack.name}** costs ${coinIcon} \`${formatPrice(selectedPack.price)}\` and you have ${coinIcon} \`${formatPrice(user.coins)}\`.`,
+            flags: 64,
+          });
+        }
+
+        let availableCards = db
+          .prepare("SELECT * FROM cards WHERE overall BETWEEN ? AND ?")
+          .all(selectedPack.minOvr, selectedPack.maxOvr);
+
+        if (!availableCards || availableCards.length === 0) {
+          return interaction.reply({
+            content: `❌ No cards registered in the database for the range [${selectedPack.minOvr} - ${selectedPack.maxOvr} OVR].`,
+            flags: 64,
+          });
+        }
+
+        const obtainedCard = availableCards[Math.floor(Math.random() * availableCards.length)];
+
+        db.prepare("UPDATE users SET coins = coins - ? WHERE user_id = ?").run(
+          selectedPack.price,
+          userId
+        );
+        db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
+          userId,
+          obtainedCard.card_id
+        );
+
+        const packIcon = getPackIconByOvr(obtainedCard.overall);
+
+        const cardEmbed = new EmbedBuilder()
+          .setTitle(`🎉 You opened a ${selectedPack.name}!`)
+          .setDescription(
+            `You pulled: **${obtainedCard.name}**!\n\n` +
+            `**Position:** \`${obtainedCard.pos}\`\n` +
+            `**Overall (OVR):** \`${obtainedCard.overall}\`\n` +
+            `**Market Value:** ${coinIcon} \`${formatPrice(obtainedCard.price)}\``
+          )
+          .setColor("#2B2D31");
+
+        const replyPayload = { embeds: [cardEmbed] };
+        const cardImage = obtainedCard.image_url || obtainedCard.image;
+
+        if (cardImage) {
+          if (cardImage.startsWith("http")) {
+            cardEmbed.setImage(cardImage);
+          } else {
+            const imagePath = path.join(__dirname, "assets", cardImage);
+            cardEmbed.setImage(`attachment://${cardImage}`);
+            replyPayload.files = [{ attachment: imagePath, name: cardImage }];
+          }
+        }
+
+        return interaction.reply(replyPayload);
       }
 
-      return interaction.reply(replyPayload);
-    }
+      const nextHour = new Date();
+      nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+      const nextHourUnix = Math.floor(nextHour.getTime() / 1000);
 
-    const nextHour = new Date();
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
-    const nextHourUnix = Math.floor(nextHour.getTime() / 1000);
+      let descriptionText =
+        `Welcome to the RLS Shop\n` +
+        `Purchase packs by typing: \`/shop buy: <pack_id>\`\n\n` +
+        `${timerIcon} **Resets in:** <t:${nextHourUnix}:R>\n` +
+        `${coinIcon} **Balance:** \`${formatPrice(user.coins)}\`\n\n` +
+        `**Item List**\n`;
 
-    let descriptionText =
-      `Welcome to the RLS Shop\n` +
-      `Purchase packs by typing: \`/shop buy: <pack_id>\`\n\n` +
-      `${timerIcon} **Resets in:** <t:${nextHourUnix}:R>\n` +
-      `${coinIcon} **Balance:** \`${formatPrice(user.coins)}\`\n\n` +
-      `**Item List**\n`;
-
-    shopPacks.forEach((pack) => {
-      descriptionText +=
-        `**${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
-        `> ${pack.description}\n\n`;
-    });
-
-    const embed = new EmbedBuilder()
-      .setTitle(`${store} RLS Bot Shop`)
-      .setColor("#2B2D31")
-      .setDescription(descriptionText);
-
-    return await interaction.reply({ embeds: [embed] });
-  } catch (error) {
-    console.error("Error in /shop:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: "❌ An error occurred while opening the shop.",
-        flags: 64,
+      shopPacks.forEach((pack) => {
+        descriptionText +=
+          `**${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
+          `> ${pack.description}\n\n`;
       });
+
+      const embed = new EmbedBuilder()
+        .setTitle(`${store} RLS Bot Shop`)
+        .setColor("#2B2D31")
+        .setDescription(descriptionText);
+
+      return await interaction.reply({ embeds: [embed] });
+    } catch (error) {
+      console.error("Error in /shop:", error);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ An error occurred while opening the shop.",
+          flags: 64,
+        });
+      }
     }
   }
-}
 
   if (interaction.commandName === "profile") {
     try {
@@ -1251,6 +1381,109 @@ client.on("interactionCreate", async (interaction) => {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
           content: "❌ An error occurred loading your profile.",
+          flags: 64,
+        });
+      }
+    }
+  }
+
+  if (interaction.commandName === "fuse") {
+    try {
+      await interaction.deferReply();
+
+      const userId = interaction.user.id;
+      const playerNameInput = interaction.options.getString("player").trim();
+      const monedaIcon = "<:moneda:1545283928515022909>";
+      const habilities = "<:estrella:1545228638822203412>";
+
+      const userCopies = db
+        .prepare(
+          `
+          SELECT inventory.id as inventory_id, cards.* 
+          FROM inventory 
+          JOIN cards ON inventory.card_id = cards.card_id 
+          WHERE inventory.user_id = ? AND LOWER(cards.name) = LOWER(?)
+          `
+        )
+        .all(userId, playerNameInput);
+
+      if (!userCopies || userCopies.length < 3) {
+        const currentAmount = userCopies ? userCopies.length : 0;
+        return interaction.editReply({
+          content: `❌ You need at least **3 copies** of \`${playerNameInput}\` to perform a fusion. You currently own **${currentAmount}**.`,
+        });
+      }
+
+      const baseCard = userCopies[0];
+
+      let targetCards = db
+        .prepare("SELECT * FROM cards WHERE overall > ? ORDER BY overall ASC")
+        .all(baseCard.overall);
+
+      if (!targetCards || targetCards.length === 0) {
+        targetCards = db
+          .prepare("SELECT * FROM cards WHERE overall = (SELECT MAX(overall) FROM cards)")
+          .all();
+      }
+
+      const newCard = targetCards[Math.floor(Math.random() * targetCards.length)];
+
+      const deleteStmt = db.prepare("DELETE FROM inventory WHERE id = ?");
+      const copiesToDelete = userCopies.slice(0, 3);
+      
+      for (const copy of copiesToDelete) {
+        deleteStmt.run(copy.inventory_id);
+      }
+
+      db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
+        userId,
+        newCard.card_id
+      );
+
+      const packIcon = getPackIconByOvr(newCard.overall);
+      const categoryStarsDisplay = getCategoryStars(newCard.category);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`⚡ Fusion Successful! You obtained ${newCard.name}! ${packIcon}`)
+        .setColor("#9B59B6")
+        .setDescription(`You sacrificed 3x **${baseCard.name}** (${baseCard.overall} OVR) to forge a higher tier card!`)
+        .addFields(
+          { name: "POS", value: `\`${newCard.pos}\``, inline: true },
+          { name: "OVR", value: `\`${newCard.overall}\``, inline: true },
+          { name: "Rarity", value: `\`${newCard.rarity ? newCard.rarity.toUpperCase() : "N/A"}\``, inline: true },
+          { name: "Category", value: `${categoryStarsDisplay}`, inline: true },
+          { name: `${habilities}Passive`, value: `\`${newCard.passive || "None"}\``, inline: false },
+          { name: `${habilities}Ultimate`, value: `\`${newCard.ultimate || "None"}\``, inline: false },
+          {
+            name: "Market Value",
+            value: `${monedaIcon} \`${formatPrice(newCard.price)}\``,
+            inline: false,
+          }
+        );
+
+      const files = [];
+      const cardImage = newCard.image_url || newCard.image;
+      if (cardImage) {
+        if (cardImage.startsWith("http")) {
+          embed.setImage(cardImage);
+        } else {
+          const imagePath = path.join(__dirname, "assets", cardImage);
+          const attachment = new AttachmentBuilder(imagePath, { name: cardImage });
+          files.push(attachment);
+          embed.setImage(`attachment://${cardImage}`);
+        }
+      }
+
+      await interaction.editReply({ embeds: [embed], files });
+    } catch (error) {
+      console.error("Error in /fuse:", error);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: "❌ An error occurred while fusing the cards.",
+        });
+      } else {
+        await interaction.reply({
+          content: "❌ An error occurred while fusing the cards.",
           flags: 64,
         });
       }

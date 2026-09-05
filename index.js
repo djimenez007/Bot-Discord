@@ -13,6 +13,7 @@ const {
 } = require("discord.js");
 const { createCanvas, loadImage } = require("@napi-rs/canvas");
 const path = require("path");
+const fs = require("fs");
 const config = require("./config.json");
 const db = require("./database");
 
@@ -22,6 +23,30 @@ const formatPrice = (amount) => {
   if (amount === undefined || amount === null) return "0";
   return amount.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 };
+
+/**
+ * Carga de imágenes de forma segura con encodeURI y manejo de errores
+ */
+async function safeLoadImage(src) {
+  if (!src) throw new Error("Image source is undefined or empty");
+
+  if (typeof src === "string" && src.startsWith("http")) {
+    const sanitizedUrl = encodeURI(src);
+    return await loadImage(sanitizedUrl);
+  }
+
+  // Si es una ruta local o relativa
+  let localPath = src;
+  if (!path.isAbsolute(src)) {
+    localPath = path.join(__dirname, "assets", path.basename(src));
+  }
+
+  if (!fs.existsSync(localPath)) {
+    throw new Error(`Local file does not exist: ${localPath}`);
+  }
+
+  return await loadImage(localPath);
+}
 
 // Map de emojis actualizados con las nuevas cartas
 const PACK_ICONS = {
@@ -42,11 +67,11 @@ const SHOP_ICONS = {
 };
 
 const shopPacks = [
-  { id: "mythic", icon: SHOP_ICONS.mythic, name: "Mythic Pack", minOvr: 99, maxOvr: 110, price: 5000000, description: "Contains cards between 99 - 110 OVR." },
-  { id: "legendary", icon: SHOP_ICONS.legendary, name: "Legendary Pack", minOvr: 90, maxOvr: 98, price: 2000000, description: "Contains cards between 90 - 98 OVR." },
-  { id: "epic", icon: SHOP_ICONS.epic, name: "Epic Pack", minOvr: 83, maxOvr: 89, price: 800000, description: "Contains cards between 83 - 89 OVR." },
-  { id: "rare", icon: SHOP_ICONS.rare, name: "Rare Pack", minOvr: 75, maxOvr: 82, price: 300000, description: "Contains cards between 75 - 82 OVR." },
-  { id: "common", icon: SHOP_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR." },
+  { id: "mythic", icon: SHOP_ICONS.mythic, name: "Mythic Pack", minOvr: 99, maxOvr: 110, price: 5000000, description: "Contains cards between 99 - 110 OVR.", stock: 3 },
+  { id: "legendary", icon: SHOP_ICONS.legendary, name: "Legendary Pack", minOvr: 90, maxOvr: 98, price: 2000000, description: "Contains cards between 90 - 98 OVR.", stock: 5 },
+  { id: "epic", icon: SHOP_ICONS.epic, name: "Epic Pack", minOvr: 83, maxOvr: 89, price: 800000, description: "Contains cards between 83 - 89 OVR.", stock: 10 },
+  { id: "rare", icon: SHOP_ICONS.rare, name: "Rare Pack", minOvr: 75, maxOvr: 82, price: 300000, description: "Contains cards between 75 - 82 OVR.", stock: 15 },
+  { id: "common", icon: SHOP_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR.", stock: 25 },
 ];
 
 function getPackIconByOvr(ovr) {
@@ -69,6 +94,7 @@ const SKILL_EFFECTS = {
   "Thunder Strike": { sho: 25, pas: 0, dri: 0, def: 0, giq: 10, aer: 0, pos: ["cf", "lf", "rf"], type: "shoot" },
   "Iron Defense": { sho: 0, pas: 0, dri: 0, def: 30, giq: 0, aer: 15, pos: ["lb", "rb"], type: "defense" },
   "Golden Pass": { sho: 0, pas: 30, dri: 10, def: 0, giq: 10, aer: 0, pos: ["cm"], type: "pass" },
+  "Stomp Dribbler": { sho: 0, pas: 0, dri: 25, def: 0, giq: 5, aer: 0, pos: ["cm", "lf", "rf", "cf"], type: "dribble" },
   "Acrobatic Save": { sho: 0, pas: 0, dri: 0, def: 25, giq: 15, aer: 25, pos: ["gk"], type: "save" }
 };
 
@@ -142,7 +168,6 @@ const commands = [
         .setDescription("Name of the player you want to remove from lineup")
         .setRequired(true)
     ),
-
   new SlashCommandBuilder()
     .setName("shop")
     .setDescription("Display available cards in the shop (refreshes hourly).")
@@ -153,7 +178,6 @@ const commands = [
         .setRequired(false)
         .setAutocomplete(true)
     ),
-
   new SlashCommandBuilder()
     .setName("profile")
     .setDescription("Display your club profile, balance, and statistics."),
@@ -192,13 +216,13 @@ client.once("ready", async () => {
 });
 
 const POSITIONS_MAP = {
-  gk_id: { x: 755, y: 750, width: 200, height: 290 },
-  lb_id: { x: 380, y: 610, width: 200, height: 290 },
-  rb_id: { x: 1180, y: 610, width: 200, height: 290 },
+  gk_id: { x: 755, y: 650, width: 180, height: 260 },
+  lb_id: { x: 480, y: 500, width: 180, height: 260 },
+  rb_id: { x: 1050, y: 500, width: 180, height: 260 },
   cm_id: { x: 755, y: 350, width: 180, height: 260 },
-  lf_id: { x: 500, y: 150, width: 175, height: 242 },
-  cf_id: { x: 755, y: 230, width: 175, height: 242 },
-  rf_id: { x: 1060, y: 300, width: 175, height: 242 },
+  lf_id: { x: 500, y: 150, width: 180, height: 260 },
+  cf_id: { x: 755, y: 100, width: 180, height: 260 },
+  rf_id: { x: 1060, y: 150, width: 180, height: 260 },
 };
 
 const POS_TO_COLUMN = {
@@ -249,14 +273,6 @@ function getUserSquad(userId) {
 }
 
 client.on("interactionCreate", async (interaction) => {
-  const shopPacks = [
-    { id: "mythic", name: `${PACK_ICONS.mythic} Mythic Pack`, minOvr: 99, maxOvr: 110, price: 5000000, description: "Contains cards between 99 - 110 OVR.", stock: 3 },
-    { id: "legendary", name: `${PACK_ICONS.legendary} Legendary Pack`, minOvr: 90, maxOvr: 98, price: 2000000, description: "Contains cards between 90 - 98 OVR.", stock: 5 },
-    { id: "epic", name: `${PACK_ICONS.epic} Epic Pack`, minOvr: 83, maxOvr: 89, price: 800000, description: "Contains cards between 83 - 89 OVR.", stock: 10 },
-    { id: "rare", name: `${PACK_ICONS.rare} Rare Pack`, minOvr: 75, maxOvr: 82, price: 300000, description: "Contains cards between 75 - 82 OVR.", stock: 15 },
-    { id: "common", name: `${PACK_ICONS.common} Common Pack`, minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR.", stock: 25 },
-  ];
-
   if (interaction.isAutocomplete()) {
     const focusedOption = interaction.options.getFocused(true);
 
@@ -308,6 +324,90 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "team") {
+    try {
+      await interaction.deferReply();
+
+      const userId = interaction.user.id;
+      const squad = db
+        .prepare("SELECT * FROM squads WHERE user_id = ?")
+        .get(userId);
+
+      const pitchPath = path.join(__dirname, "assets", "pitch.png");
+      let pitchImage;
+      try {
+        pitchImage = await safeLoadImage(pitchPath);
+      } catch (err) {
+        console.error("❌ Failed to load pitch background image:", err);
+        throw err;
+      }
+
+      const canvas = createCanvas(pitchImage.width, pitchImage.height);
+      const ctx = canvas.getContext("2d");
+
+      ctx.drawImage(pitchImage, 0, 0, canvas.width, canvas.height);
+
+      if (squad) {
+        for (const [posKey, coords] of Object.entries(POSITIONS_MAP)) {
+          const cardId = squad[posKey];
+          if (cardId) {
+            const card = db
+              .prepare("SELECT * FROM cards WHERE card_id = ?")
+              .get(cardId);
+
+            if (card) {
+              const cardImgSrc = card.image_url || card.image;
+              if (cardImgSrc) {
+                try {
+                  const cardImg = await safeLoadImage(cardImgSrc);
+
+                  const drawX = coords.x - coords.width / 2;
+                  const drawY = coords.y - coords.height / 2;
+                  ctx.drawImage(
+                    cardImg,
+                    drawX,
+                    drawY,
+                    coords.width,
+                    coords.height
+                  );
+                } catch (imgErr) {
+                  console.error(
+                    `❌ Error loading image for card "${card.name}" (ID: ${card.card_id}, SRC: "${cardImgSrc}"):`,
+                    imgErr.message
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const buffer = canvas.toBuffer("image/png");
+      const attachment = new AttachmentBuilder(buffer, {
+        name: "squad_pitch.png",
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle(`📋 ${interaction.user.username}'s Lineup`)
+        .setColor("#2ECC71")
+        .setImage("attachment://squad_pitch.png");
+
+      await interaction.editReply({ embeds: [embed], files: [attachment] });
+    } catch (error) {
+      console.error("Error in /team:", error);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: "❌ An error occurred while generating your team layout.",
+        });
+      } else {
+        await interaction.reply({
+          content: "❌ An error occurred while generating your team layout.",
+          flags: 64,
+        });
+      }
+    }
+  }
 
   if (interaction.commandName === "giveallcards") {
     const MY_DISCORD_ID = "1120089949312647208";
@@ -432,14 +532,21 @@ client.on("interactionCreate", async (interaction) => {
       );
 
     const files = [];
-    if (card.image_url) {
-      if (card.image_url.startsWith("http")) {
-        embed.setImage(card.image_url);
-      } else {
-        const imagePath = path.join(__dirname, "assets", card.image_url);
-        const attachment = new AttachmentBuilder(imagePath, { name: card.image_url });
-        files.push(attachment);
-        embed.setImage(`attachment://${card.image_url}`);
+    const cardImgSrc = card.image_url || card.image;
+    if (cardImgSrc) {
+      try {
+        if (cardImgSrc.startsWith("http")) {
+          embed.setImage(encodeURI(cardImgSrc));
+        } else {
+          const imagePath = path.join(__dirname, "assets", path.basename(cardImgSrc));
+          if (fs.existsSync(imagePath)) {
+            const attachment = new AttachmentBuilder(imagePath, { name: path.basename(cardImgSrc) });
+            files.push(attachment);
+            embed.setImage(`attachment://${path.basename(cardImgSrc)}`);
+          }
+        }
+      } catch (err) {
+        console.error(`❌ Error rendering image for claim (${card.name}):`, err);
       }
     }
 
@@ -648,7 +755,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-if (interaction.commandName === "match") {
+  if (interaction.commandName === "match") {
     const homeUser = interaction.user;
     const awayUser = interaction.options.getUser("opponent");
 
@@ -680,7 +787,6 @@ if (interaction.commandName === "match") {
       return;
     }
 
-    // Calcula estadísticas base + bonificador silencioso por Pasiva
     const getStat = (player, stat) => {
       if (!player) return 0;
       let baseStat = getEffectiveStat(player, stat);
@@ -775,7 +881,6 @@ if (interaction.commandName === "match") {
 
     const homeChance = homePow.mid / (homePow.mid + awayPow.mid);
 
-    // Variable para garantizar al menos 1 ulti por partido
     let hasUltOccurred = false;
 
     for (let min = 1; min <= 90; min++) {
@@ -896,7 +1001,6 @@ if (interaction.commandName === "match") {
               ? `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}** (${assistant.name})`
               : `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}**`;
           } else if (isPassUltActive) {
-            // Se inserta el "TO" entre el nombre de la ulti del pase y el rematador
             text = `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${assistant.ultimate} To ${shooter.name}** (${assistant.name})`;
           } else {
             text = assistant
@@ -1113,16 +1217,23 @@ if (interaction.commandName === "match") {
         .setFooter({ text: `Sold by ${interaction.user.username}` });
 
       const files = [];
-      if (item.image_url) {
-        if (item.image_url.startsWith("http")) {
-          embed.setImage(item.image_url);
-        } else {
-          const imagePath = path.join(__dirname, "assets", item.image_url);
-          const attachment = new AttachmentBuilder(imagePath, {
-            name: item.image_url,
-          });
-          files.push(attachment);
-          embed.setImage(`attachment://${item.image_url}`);
+      const cardImgSrc = item.image_url || item.image;
+      if (cardImgSrc) {
+        try {
+          if (cardImgSrc.startsWith("http")) {
+            embed.setImage(encodeURI(cardImgSrc));
+          } else {
+            const imagePath = path.join(__dirname, "assets", path.basename(cardImgSrc));
+            if (fs.existsSync(imagePath)) {
+              const attachment = new AttachmentBuilder(imagePath, {
+                name: path.basename(cardImgSrc),
+              });
+              files.push(attachment);
+              embed.setImage(`attachment://${path.basename(cardImgSrc)}`);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Error rendering image in /sell (${item.name}):`, err);
         }
       }
 
@@ -1263,8 +1374,6 @@ if (interaction.commandName === "match") {
           obtainedCard.card_id
         );
 
-        const packIcon = getPackIconByOvr(obtainedCard.overall);
-
         const cardEmbed = new EmbedBuilder()
           .setTitle(`🎉 You opened a ${selectedPack.name}!`)
           .setDescription(
@@ -1279,12 +1388,18 @@ if (interaction.commandName === "match") {
         const cardImage = obtainedCard.image_url || obtainedCard.image;
 
         if (cardImage) {
-          if (cardImage.startsWith("http")) {
-            cardEmbed.setImage(cardImage);
-          } else {
-            const imagePath = path.join(__dirname, "assets", cardImage);
-            cardEmbed.setImage(`attachment://${cardImage}`);
-            replyPayload.files = [{ attachment: imagePath, name: cardImage }];
+          try {
+            if (cardImage.startsWith("http")) {
+              cardEmbed.setImage(encodeURI(cardImage));
+            } else {
+              const imagePath = path.join(__dirname, "assets", path.basename(cardImage));
+              if (fs.existsSync(imagePath)) {
+                cardEmbed.setImage(`attachment://${path.basename(cardImage)}`);
+                replyPayload.files = [{ attachment: imagePath, name: path.basename(cardImage) }];
+              }
+            }
+          } catch (err) {
+            console.error(`❌ Error rendering shop card image (${obtainedCard.name}):`, err);
           }
         }
 
@@ -1464,13 +1579,19 @@ if (interaction.commandName === "match") {
       const files = [];
       const cardImage = newCard.image_url || newCard.image;
       if (cardImage) {
-        if (cardImage.startsWith("http")) {
-          embed.setImage(cardImage);
-        } else {
-          const imagePath = path.join(__dirname, "assets", cardImage);
-          const attachment = new AttachmentBuilder(imagePath, { name: cardImage });
-          files.push(attachment);
-          embed.setImage(`attachment://${cardImage}`);
+        try {
+          if (cardImage.startsWith("http")) {
+            embed.setImage(encodeURI(cardImage));
+          } else {
+            const imagePath = path.join(__dirname, "assets", path.basename(cardImage));
+            if (fs.existsSync(imagePath)) {
+              const attachment = new AttachmentBuilder(imagePath, { name: path.basename(cardImage) });
+              files.push(attachment);
+              embed.setImage(`attachment://${path.basename(cardImage)}`);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Error rendering fusion card image (${newCard.name}):`, err);
         }
       }
 

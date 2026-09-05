@@ -49,13 +49,42 @@ const shopPacks = [
   { id: "common", icon: SHOP_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR." },
 ];
 
-
 function getPackIconByOvr(ovr) {
   if (ovr >= 99) return PACK_ICONS.mythic;
   if (ovr >= 90) return PACK_ICONS.legendary;
   if (ovr >= 83) return PACK_ICONS.epic;
   if (ovr >= 75) return PACK_ICONS.rare;
   return PACK_ICONS.common;
+}
+
+// Sistema de efectos para Pasivas y Ultimates
+const SKILL_EFFECTS = {
+  // Pasivas
+  "Sniper": { sho: 10, pas: 0, dri: 0, def: 0, giq: 5, aer: 0 },
+  "Wall": { sho: 0, pas: 0, dri: 0, def: 15, giq: 0, aer: 10 },
+  "Playmaker": { sho: 0, pas: 15, dri: 10, def: 0, giq: 5, aer: 0 },
+  "Speedster": { sho: 5, pas: 0, dri: 15, def: 0, giq: 0, aer: 0 },
+
+  // Ultimates
+  "Power Shot": { sho: 25, pas: 0, dri: 0, def: 0, giq: 10, aer: 0 },
+  "Iron Defense": { sho: 0, pas: 0, dri: 0, def: 30, giq: 0, aer: 15 },
+  "Golden Pass": { sho: 0, pas: 30, dri: 10, def: 0, giq: 10, aer: 0 },
+  "Acrobatic Save": { sho: 0, pas: 0, dri: 0, def: 25, giq: 15, aer: 25 }
+};
+
+function getEffectiveStat(player, statName) {
+  if (!player) return 50;
+  let baseValue = player[statName] || 50;
+
+  if (player.passive && SKILL_EFFECTS[player.passive]) {
+    baseValue += SKILL_EFFECTS[player.passive][statName] || 0;
+  }
+
+  if (player.ultimate && SKILL_EFFECTS[player.ultimate]) {
+    baseValue += SKILL_EFFECTS[player.ultimate][statName] || 0;
+  }
+
+  return baseValue;
 }
 
 const client = new Client({
@@ -380,19 +409,21 @@ client.on("interactionCreate", async (interaction) => {
 
     const llamas = "<a:llamas:1545239096220192798>";
     const monedaIcon = "<:moneda:1545283928515022909>";
-    const habilities = "<:estrella:1545228638822203412>"
+    const habilities = "<:estrella:1545228638822203412>";
     const categoryStarsDisplay = getCategoryStars(card.category);
+    
+    const packIcon = getPackIconByOvr(card.overall);
 
     const embed = new EmbedBuilder()
-      .setTitle(`${llamas} You obtained ${card.name}!`)
+      .setTitle(`${llamas} You obtained ${card.name}! ${packIcon}`)
       .setColor("#FFD700")
       .addFields(
         { name: "POS", value: `\`${card.pos}\``, inline: true },
         { name: "OVR", value: `\`${card.overall}\``, inline: true },
         { name: "Rarity", value: `\`${card.rarity ? card.rarity.toUpperCase() : "N/A"}\``, inline: true },
         { name: "Category", value: `${categoryStarsDisplay}`, inline: true },
-        { name: `${habilities}Passive`, value: "`N/A`", inline: false },
-        { name: `${habilities}Ultimate`, value: "`N/A`", inline: false },
+        { name: `${habilities}Passive`, value: `\`${card.passive || "None"}\``, inline: false },
+        { name: `${habilities}Ultimate`, value: `\`${card.ultimate || "None"}\``, inline: false },
         {
           name: "Market Value",
           value: `${monedaIcon} \`${formatPrice(card.price)}\``,
@@ -415,7 +446,6 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.editReply({ embeds: [embed], files });
   }
 
-  // --- COMMAND /INVENTORY ---
   if (interaction.commandName === "inventory") {
     const inventoryIcon = "<:inventario:1545274824300044308>";
 
@@ -618,7 +648,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
- if (interaction.commandName === "match") {
+  if (interaction.commandName === "match") {
     const homeUser = interaction.user;
     const awayUser = interaction.options.getUser("opponent");
 
@@ -650,7 +680,7 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    const getStat = (player, stat) => (player ? player[stat] || 50 : 50);
+    const getStat = (player, stat) => getEffectiveStat(player, stat);
     const getOverall = (player) => (player ? player.overall || 50 : 50);
 
     const getTeamPower = (team) => {
@@ -1076,124 +1106,124 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "shop") {
-  try {
-    const userId = interaction.user.id;
-    const buyInput = interaction.options.getString("buy");
+    try {
+      const userId = interaction.user.id;
+      const buyInput = interaction.options.getString("buy");
 
-    const coinIcon = "<:moneda:1545283928515022909>";
-    const timerIcon = "⌛";
-    const store = "<:tienda:1545274823201132575>";
+      const coinIcon = "<:moneda:1545283928515022909>";
+      const timerIcon = "⌛";
+      const store = "<:tienda:1545274823201132575>";
 
-    let user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
-    if (!user) {
-      db.prepare("INSERT INTO users (user_id, coins, last_claim) VALUES (?, ?, ?)").run(userId, 0, 0);
-      user = { user_id: userId, coins: 0, last_claim: 0 };
-    }
-
-    if (buyInput) {
-      const query = buyInput.trim().toLowerCase();
-
-      const selectedPack = shopPacks.find(
-        (p) => p.id.toLowerCase() === query || p.name.toLowerCase().includes(query)
-      );
-
-      if (!selectedPack) {
-        return interaction.reply({
-          content: `❌ \`${buyInput}\` is not a valid pack. Options: \`mythic\`, \`legendary\`, \`epic\`, \`rare\`, \`common\`.`,
-          flags: 64,
-        });
+      let user = db.prepare("SELECT * FROM users WHERE user_id = ?").get(userId);
+      if (!user) {
+        db.prepare("INSERT INTO users (user_id, coins, last_claim) VALUES (?, ?, ?)").run(userId, 0, 0);
+        user = { user_id: userId, coins: 0, last_claim: 0 };
       }
 
-      if (user.coins < selectedPack.price) {
-        return interaction.reply({
-          content: `❌ Not enough coins. **${selectedPack.name}** costs ${coinIcon} \`${formatPrice(selectedPack.price)}\` and you have ${coinIcon} \`${formatPrice(user.coins)}\`.`,
-          flags: 64,
-        });
-      }
+      if (buyInput) {
+        const query = buyInput.trim().toLowerCase();
 
-      let availableCards = db
-        .prepare("SELECT * FROM cards WHERE overall BETWEEN ? AND ?")
-        .all(selectedPack.minOvr, selectedPack.maxOvr);
+        const selectedPack = shopPacks.find(
+          (p) => p.id.toLowerCase() === query || p.name.toLowerCase().includes(query)
+        );
 
-      if (!availableCards || availableCards.length === 0) {
-        return interaction.reply({
-          content: `❌ No cards registered in the database for the range [${selectedPack.minOvr} - ${selectedPack.maxOvr} OVR].`,
-          flags: 64,
-        });
-      }
-
-      const obtainedCard = availableCards[Math.floor(Math.random() * availableCards.length)];
-
-      db.prepare("UPDATE users SET coins = coins - ? WHERE user_id = ?").run(
-        selectedPack.price,
-        userId
-      );
-      db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
-        userId,
-        obtainedCard.card_id
-      );
-
-      const packIcon = getPackIconByOvr(obtainedCard.overall);
-
-      const cardEmbed = new EmbedBuilder()
-        .setTitle(`🎉 You opened a ${selectedPack.name}!`)
-        .setDescription(
-          `You pulled: **${obtainedCard.name}**!\n\n` +
-          `**Position:** \`${obtainedCard.pos}\`\n` +
-          `**Overall (OVR):** \`${obtainedCard.overall}\`\n` +
-          `**Market Value:** ${coinIcon} \`${formatPrice(obtainedCard.price)}\``
-        )
-        .setColor("#2B2D31");
-
-      const replyPayload = { embeds: [cardEmbed] };
-      const cardImage = obtainedCard.image_url || obtainedCard.image;
-
-      if (cardImage) {
-        if (cardImage.startsWith("http")) {
-          cardEmbed.setImage(cardImage);
-        } else {
-          const imagePath = path.join(__dirname, "assets", cardImage);
-          cardEmbed.setImage(`attachment://${cardImage}`);
-          replyPayload.files = [{ attachment: imagePath, name: cardImage }];
+        if (!selectedPack) {
+          return interaction.reply({
+            content: `❌ \`${buyInput}\` is not a valid pack. Options: \`mythic\`, \`legendary\`, \`epic\`, \`rare\`, \`common\`.`,
+            flags: 64,
+          });
         }
+
+        if (user.coins < selectedPack.price) {
+          return interaction.reply({
+            content: `❌ Not enough coins. **${selectedPack.name}** costs ${coinIcon} \`${formatPrice(selectedPack.price)}\` and you have ${coinIcon} \`${formatPrice(user.coins)}\`.`,
+            flags: 64,
+          });
+        }
+
+        let availableCards = db
+          .prepare("SELECT * FROM cards WHERE overall BETWEEN ? AND ?")
+          .all(selectedPack.minOvr, selectedPack.maxOvr);
+
+        if (!availableCards || availableCards.length === 0) {
+          return interaction.reply({
+            content: `❌ No cards registered in the database for the range [${selectedPack.minOvr} - ${selectedPack.maxOvr} OVR].`,
+            flags: 64,
+          });
+        }
+
+        const obtainedCard = availableCards[Math.floor(Math.random() * availableCards.length)];
+
+        db.prepare("UPDATE users SET coins = coins - ? WHERE user_id = ?").run(
+          selectedPack.price,
+          userId
+        );
+        db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
+          userId,
+          obtainedCard.card_id
+        );
+
+        const packIcon = getPackIconByOvr(obtainedCard.overall);
+
+        const cardEmbed = new EmbedBuilder()
+          .setTitle(`🎉 You opened a ${selectedPack.name}!`)
+          .setDescription(
+            `You pulled: **${obtainedCard.name}**!\n\n` +
+            `**Position:** \`${obtainedCard.pos}\`\n` +
+            `**Overall (OVR):** \`${obtainedCard.overall}\`\n` +
+            `**Market Value:** ${coinIcon} \`${formatPrice(obtainedCard.price)}\``
+          )
+          .setColor("#2B2D31");
+
+        const replyPayload = { embeds: [cardEmbed] };
+        const cardImage = obtainedCard.image_url || obtainedCard.image;
+
+        if (cardImage) {
+          if (cardImage.startsWith("http")) {
+            cardEmbed.setImage(cardImage);
+          } else {
+            const imagePath = path.join(__dirname, "assets", cardImage);
+            cardEmbed.setImage(`attachment://${cardImage}`);
+            replyPayload.files = [{ attachment: imagePath, name: cardImage }];
+          }
+        }
+
+        return interaction.reply(replyPayload);
       }
 
-      return interaction.reply(replyPayload);
-    }
+      const nextHour = new Date();
+      nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
+      const nextHourUnix = Math.floor(nextHour.getTime() / 1000);
 
-    const nextHour = new Date();
-    nextHour.setHours(nextHour.getHours() + 1, 0, 0, 0);
-    const nextHourUnix = Math.floor(nextHour.getTime() / 1000);
+      let descriptionText =
+        `Welcome to the RLS Shop\n` +
+        `Purchase packs by typing: \`/shop buy: <pack_id>\`\n\n` +
+        `${timerIcon} **Resets in:** <t:${nextHourUnix}:R>\n` +
+        `${coinIcon} **Balance:** \`${formatPrice(user.coins)}\`\n\n` +
+        `**Item List**\n`;
 
-    let descriptionText =
-      `Welcome to the RLS Shop\n` +
-      `Purchase packs by typing: \`/shop buy: <pack_id>\`\n\n` +
-      `${timerIcon} **Resets in:** <t:${nextHourUnix}:R>\n` +
-      `${coinIcon} **Balance:** \`${formatPrice(user.coins)}\`\n\n` +
-      `**Item List**\n`;
-
-    shopPacks.forEach((pack) => {
-      descriptionText +=
-        `**${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
-        `> ${pack.description}\n\n`;
-    });
-
-    const embed = new EmbedBuilder()
-      .setTitle(`${store} RLS Bot Shop`)
-      .setColor("#2B2D31")
-      .setDescription(descriptionText);
-
-    return await interaction.reply({ embeds: [embed] });
-  } catch (error) {
-    console.error("Error in /shop:", error);
-    if (!interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: "❌ An error occurred while opening the shop.",
-        flags: 64,
+      shopPacks.forEach((pack) => {
+        descriptionText +=
+          `**${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
+          `> ${pack.description}\n\n`;
       });
+
+      const embed = new EmbedBuilder()
+        .setTitle(`${store} RLS Bot Shop`)
+        .setColor("#2B2D31")
+        .setDescription(descriptionText);
+
+      return await interaction.reply({ embeds: [embed] });
+    } catch (error) {
+      console.error("Error in /shop:", error);
+      if (!interaction.replied && !interaction.deferred) {
+        await interaction.reply({
+          content: "❌ An error occurred while opening the shop.",
+          flags: 64,
+        });
+      }
     }
   }
-}
 
   if (interaction.commandName === "profile") {
     try {
@@ -1251,6 +1281,109 @@ client.on("interactionCreate", async (interaction) => {
       if (!interaction.replied && !interaction.deferred) {
         await interaction.reply({
           content: "❌ An error occurred loading your profile.",
+          flags: 64,
+        });
+      }
+    }
+  }
+
+  if (interaction.commandName === "fuse") {
+    try {
+      await interaction.deferReply();
+
+      const userId = interaction.user.id;
+      const playerNameInput = interaction.options.getString("player").trim();
+      const monedaIcon = "<:moneda:1545283928515022909>";
+      const habilities = "<:estrella:1545228638822203412>";
+
+      const userCopies = db
+        .prepare(
+          `
+          SELECT inventory.id as inventory_id, cards.* 
+          FROM inventory 
+          JOIN cards ON inventory.card_id = cards.card_id 
+          WHERE inventory.user_id = ? AND LOWER(cards.name) = LOWER(?)
+          `
+        )
+        .all(userId, playerNameInput);
+
+      if (!userCopies || userCopies.length < 3) {
+        const currentAmount = userCopies ? userCopies.length : 0;
+        return interaction.editReply({
+          content: `❌ You need at least **3 copies** of \`${playerNameInput}\` to perform a fusion. You currently own **${currentAmount}**.`,
+        });
+      }
+
+      const baseCard = userCopies[0];
+
+      let targetCards = db
+        .prepare("SELECT * FROM cards WHERE overall > ? ORDER BY overall ASC")
+        .all(baseCard.overall);
+
+      if (!targetCards || targetCards.length === 0) {
+        targetCards = db
+          .prepare("SELECT * FROM cards WHERE overall = (SELECT MAX(overall) FROM cards)")
+          .all();
+      }
+
+      const newCard = targetCards[Math.floor(Math.random() * targetCards.length)];
+
+      const deleteStmt = db.prepare("DELETE FROM inventory WHERE id = ?");
+      const copiesToDelete = userCopies.slice(0, 3);
+      
+      for (const copy of copiesToDelete) {
+        deleteStmt.run(copy.inventory_id);
+      }
+
+      db.prepare("INSERT INTO inventory (user_id, card_id) VALUES (?, ?)").run(
+        userId,
+        newCard.card_id
+      );
+
+      const packIcon = getPackIconByOvr(newCard.overall);
+      const categoryStarsDisplay = getCategoryStars(newCard.category);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`⚡ Fusion Successful! You obtained ${newCard.name}! ${packIcon}`)
+        .setColor("#9B59B6")
+        .setDescription(`You sacrificed 3x **${baseCard.name}** (${baseCard.overall} OVR) to forge a higher tier card!`)
+        .addFields(
+          { name: "POS", value: `\`${newCard.pos}\``, inline: true },
+          { name: "OVR", value: `\`${newCard.overall}\``, inline: true },
+          { name: "Rarity", value: `\`${newCard.rarity ? newCard.rarity.toUpperCase() : "N/A"}\``, inline: true },
+          { name: "Category", value: `${categoryStarsDisplay}`, inline: true },
+          { name: `${habilities}Passive`, value: `\`${newCard.passive || "None"}\``, inline: false },
+          { name: `${habilities}Ultimate`, value: `\`${newCard.ultimate || "None"}\``, inline: false },
+          {
+            name: "Market Value",
+            value: `${monedaIcon} \`${formatPrice(newCard.price)}\``,
+            inline: false,
+          }
+        );
+
+      const files = [];
+      const cardImage = newCard.image_url || newCard.image;
+      if (cardImage) {
+        if (cardImage.startsWith("http")) {
+          embed.setImage(cardImage);
+        } else {
+          const imagePath = path.join(__dirname, "assets", cardImage);
+          const attachment = new AttachmentBuilder(imagePath, { name: cardImage });
+          files.push(attachment);
+          embed.setImage(`attachment://${cardImage}`);
+        }
+      }
+
+      await interaction.editReply({ embeds: [embed], files });
+    } catch (error) {
+      console.error("Error in /fuse:", error);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: "❌ An error occurred while fusing the cards.",
+        });
+      } else {
+        await interaction.reply({
+          content: "❌ An error occurred while fusing the cards.",
           flags: 64,
         });
       }

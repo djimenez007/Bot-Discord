@@ -17,7 +17,7 @@ db.exec(`
     )
 `);
 
-// 2. Tabla de Cartas de Jugadores (Añadido 'category' para las estrellas)
+// 2. Tabla de Cartas de Jugadores (Con pasivas y ultimates)
 db.exec(`
     CREATE TABLE IF NOT EXISTS cards (
         card_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -33,9 +33,19 @@ db.exec(`
         giq INTEGER NOT NULL,
         aer INTEGER NOT NULL,
         price INTEGER NOT NULL,
-        image_url TEXT
+        image_url TEXT,
+        passive TEXT DEFAULT NULL,
+        ultimate TEXT DEFAULT NULL
     )
 `);
+
+// Migración automática por si la base de datos ya existía
+try {
+  db.exec(`ALTER TABLE cards ADD COLUMN passive TEXT DEFAULT NULL;`);
+} catch (e) {}
+try {
+  db.exec(`ALTER TABLE cards ADD COLUMN ultimate TEXT DEFAULT NULL;`);
+} catch (e) {}
 
 // 3. Tabla de Inventario
 db.exec(`
@@ -80,14 +90,15 @@ if (checkCards.count === 0) {
         const cardsData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
 
         const insertCard = db.prepare(`
-            INSERT INTO cards (name, pos, overall, rarity, category, sho, pas, dri, def, giq, aer, price, image_url)
-            VALUES (@name, @pos, @overall, @rarity, @category, @sho, @pas, @dri, @def, @giq, @aer, @price, @image_url)
+            INSERT INTO cards (name, pos, overall, rarity, category, sho, pas, dri, def, giq, aer, price, image_url, passive, ultimate)
+            VALUES (@name, @pos, @overall, @rarity, @category, @sho, @pas, @dri, @def, @giq, @aer, @price, @image_url, @passive, @ultimate)
         `);
 
         const insertMany = db.transaction((cards) => {
             for (const card of cards) {
-                // Si la carta no trae 'category', le asigna 3 por defecto
                 card.category = card.category !== undefined ? card.category : 3;
+                card.passive = card.passive !== undefined ? card.passive : null;
+                card.ultimate = card.ultimate !== undefined ? card.ultimate : null;
                 insertCard.run(card);
             }
         });

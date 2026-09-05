@@ -1007,16 +1007,18 @@
   {
     "name": "Kike",
     "pos": "CM",
-    "overall": 90,
-    "rarity": "Legendary",
-    "sho": 85,
-    "pas": 94,
-    "dri": 88,
-    "def": 80,
-    "giq": 93,
-    "aer": 85,
-    "price": 4000000,
-    "category": 5,
-    "image_url": "agustin.png"
+    "overall": 110,
+    "rarity": "Mythic",
+    "sho": 100,
+    "pas": 98,
+    "dri": 98,
+    "def": 92,
+    "giq": 99,
+    "aer": 96,
+    "price": 3000000000,
+    "category": 6,
+    "image_url": "agustin.png",
+    "passive": "Playmaker",
+    "ultimate": "Golden Pass"
   }
 ]

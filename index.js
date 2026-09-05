@@ -66,10 +66,10 @@ const SKILL_EFFECTS = {
   "Speedster": { sho: 5, pas: 0, dri: 15, def: 0, giq: 0, aer: 0 },
 
   // Ultimates
-  "Power Shot": { sho: 25, pas: 0, dri: 0, def: 0, giq: 10, aer: 0 },
-  "Iron Defense": { sho: 0, pas: 0, dri: 0, def: 30, giq: 0, aer: 15 },
-  "Golden Pass": { sho: 0, pas: 30, dri: 10, def: 0, giq: 10, aer: 0 },
-  "Acrobatic Save": { sho: 0, pas: 0, dri: 0, def: 25, giq: 15, aer: 25 }
+  "Thunder Strike": { sho: 25, pas: 0, dri: 0, def: 0, giq: 10, aer: 0, pos: ["cf", "lf", "rf"], type: "shoot" },
+  "Iron Defense": { sho: 0, pas: 0, dri: 0, def: 30, giq: 0, aer: 15, pos: ["lb", "rb"], type: "defense" },
+  "Golden Pass": { sho: 0, pas: 30, dri: 10, def: 0, giq: 10, aer: 0, pos: ["cm"], type: "pass" },
+  "Acrobatic Save": { sho: 0, pas: 0, dri: 0, def: 25, giq: 15, aer: 25, pos: ["gk"], type: "save" }
 };
 
 function getEffectiveStat(player, statName) {
@@ -648,7 +648,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  if (interaction.commandName === "match") {
+if (interaction.commandName === "match") {
     const homeUser = interaction.user;
     const awayUser = interaction.options.getUser("opponent");
 
@@ -680,8 +680,34 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    const getStat = (player, stat) => getEffectiveStat(player, stat);
-    const getOverall = (player) => (player ? player.overall || 50 : 50);
+    // Calcula estadísticas base + bonificador silencioso por Pasiva
+    const getStat = (player, stat) => {
+      if (!player) return 0;
+      let baseStat = getEffectiveStat(player, stat);
+
+      if (player.passive) {
+        const passiveConfig = SKILL_EFFECTS[player.passive];
+        if (passiveConfig && passiveConfig.stats && passiveConfig.stats[stat]) {
+          baseStat += passiveConfig.stats[stat];
+        }
+      }
+
+      return baseStat;
+    };
+
+    const getOverall = (player) => {
+      if (!player) return 50;
+      let ovr = player.overall || 50;
+
+      if (player.passive) {
+        const passiveConfig = SKILL_EFFECTS[player.passive];
+        if (passiveConfig && passiveConfig.stats && passiveConfig.stats.overall) {
+          ovr += passiveConfig.stats.overall;
+        }
+      }
+
+      return ovr;
+    };
 
     const getTeamPower = (team) => {
       const mid =
@@ -728,7 +754,7 @@ client.on("interactionCreate", async (interaction) => {
 
           if (pos === "cf" && statName === "sho") weight *= 1.8;
 
-          return { card, weight };
+          return { card, weight, pos };
         });
 
       if (candidates.length === 0) return null;
@@ -737,10 +763,10 @@ client.on("interactionCreate", async (interaction) => {
       let random = Math.random() * totalWeight;
 
       for (const candidate of candidates) {
-        if (random < candidate.weight) return candidate.card;
+        if (random < candidate.weight) return { card: candidate.card, pos: candidate.pos };
         random -= candidate.weight;
       }
-      return candidates[0].card;
+      return { card: candidates[0].card, pos: candidates[0].pos };
     };
 
     const homePow = getTeamPower(homeTeam);
@@ -749,6 +775,9 @@ client.on("interactionCreate", async (interaction) => {
 
     const homeChance = homePow.mid / (homePow.mid + awayPow.mid);
 
+    // Variable para garantizar al menos 1 ulti por partido
+    let hasUltOccurred = false;
+
     for (let min = 1; min <= 90; min++) {
       if (Math.random() < 0.14) {
         const isHomeAttacking = Math.random() < homeChance;
@@ -756,21 +785,34 @@ client.on("interactionCreate", async (interaction) => {
         const defendingTeam = isHomeAttacking ? awayTeam : homeTeam;
         const defStats = isHomeAttacking ? awayPow : homePow;
 
-        const defender = selectPlayerByStatAndRating(defendingTeam, "def", ["lb", "rb", "cm"]);
+        const defenderObj = selectPlayerByStatAndRating(defendingTeam, "def", ["lb", "rb", "cm"]);
+        const defender = defenderObj ? defenderObj.card : null;
+        const defenderPos = defenderObj ? defenderObj.pos : null;
         const defScore = defender ? getStat(defender, "def") * 0.6 + getOverall(defender) * 0.4 : 30;
 
         if (defender && Math.random() < (defScore / 200)) {
-          const defEmoji = Math.random() < 0.5 ? "🧱" : "🛡️";
+          const ultConfig = defender.ultimate ? SKILL_EFFECTS[defender.ultimate] : null;
+          const ultChance = (!hasUltOccurred && min > 60) ? 1.0 : 0.60;
+          const isUltActive = defender.ultimate && ultConfig && ultConfig.type === "defense" && ultConfig.pos.includes(defenderPos) && Math.random() < ultChance;
+          let defEmoji = Math.random() < 0.5 ? "🧱" : "🛡️";
+          let ultText = "";
+
+          if (isUltActive) {
+            hasUltOccurred = true;
+            defEmoji = "<a:llamamorada:1545685043354279977>";
+            ultText = `<a:llamamorada:1545685043354279977> **${defender.ultimate}** `;
+          }
+
           allEvents.push({
             minute: min,
-            text: `\`${min}'\` ${defEmoji} **${defender.name}**`,
+            text: `\`${min}'\` ${defEmoji} ${ultText}**${defender.name}**`,
             type: "defense",
             team: isHomeAttacking ? "away" : "home",
           });
           continue;
         }
 
-        const shooter =
+        const shooterObj =
           selectPlayerByStatAndRating(attackingTeam, "sho", [
             "cf",
             "lf",
@@ -778,39 +820,89 @@ client.on("interactionCreate", async (interaction) => {
             "cm",
             "lb",
             "rb",
-          ]) || attackingTeam.cf;
+          ]) || { card: attackingTeam.cf, pos: "cf" };
+        
+        const shooter = shooterObj ? shooterObj.card : null;
+        const shooterPos = shooterObj ? shooterObj.pos : null;
         const gk = defendingTeam.gk;
 
         if (!shooter) continue;
 
-        const shooterQuality =
+        let assistantObj = selectPlayerByStatAndRating(attackingTeam, "pas", [
+          "cm",
+          "lf",
+          "rf",
+          "lb",
+          "rb",
+        ]);
+        if (assistantObj && assistantObj.card.card_id === shooter.card_id) assistantObj = null;
+
+        const assistant = assistantObj ? assistantObj.card : null;
+        const assistantPos = assistantObj ? assistantObj.pos : null;
+
+        const ultChancePass = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+        const ultChanceShoot = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+
+        const passUltConfig = assistant && assistant.ultimate ? SKILL_EFFECTS[assistant.ultimate] : null;
+        const isPassUltActive = assistant && assistant.ultimate && passUltConfig && passUltConfig.type === "pass" && passUltConfig.pos.includes(assistantPos) && Math.random() < ultChancePass;
+
+        const shootUltConfig = shooter.ultimate ? SKILL_EFFECTS[shooter.ultimate] : null;
+        const isShooterUlt = shooter.ultimate && shootUltConfig && shootUltConfig.type === "shoot" && shootUltConfig.pos.includes(shooterPos) && Math.random() < ultChanceShoot;
+        
+        if (isPassUltActive || isShooterUlt) {
+          hasUltOccurred = true;
+        }
+
+        let shooterQuality =
           getStat(shooter, "sho") * 0.6 + getOverall(shooter) * 0.4;
+        
+        if (isShooterUlt) {
+          shooterQuality += 20;
+        }
+        if (isPassUltActive) {
+          shooterQuality += 15;
+        }
+
         const shootPower = shooterQuality + (Math.random() * 16 - 8);
 
         const defensiveBlock = defStats.def / 10 + (Math.random() * 10 - 5);
         if (shootPower < defensiveBlock - 15) continue;
 
-        const gkQuality = gk
+        const gkUltConfig = gk && gk.ultimate ? SKILL_EFFECTS[gk.ultimate] : null;
+        const ultChanceGk = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
+        const isGkUlt = gk && gk.ultimate && gkUltConfig && gkUltConfig.type === "save" && gkUltConfig.pos.includes("gk") && Math.random() < ultChanceGk;
+        
+        if (isGkUlt) {
+          hasUltOccurred = true;
+        }
+
+        let gkQuality = gk
           ? getStat(gk, "def") * 0.4 +
             getStat(gk, "aer") * 0.3 +
             getOverall(gk) * 0.3
           : 40;
+
+        if (isGkUlt) {
+          gkQuality += 20;
+        }
+
         const gkDefense = gkQuality + (Math.random() * 16 - 8);
 
         if (shootPower > gkDefense) {
-          let assistant = selectPlayerByStatAndRating(attackingTeam, "pas", [
-            "cm",
-            "lf",
-            "rf",
-            "lb",
-            "rb",
-          ]);
-          if (assistant && assistant.card_id === shooter.card_id)
-            assistant = null;
+          let text = "";
 
-          const text = assistant
-            ? `\`${min}'\` ⚽ **${shooter.name}** (${assistant.name})`
-            : `\`${min}'\` ⚽ **${shooter.name}**`;
+          if (isShooterUlt) {
+            text = assistant 
+              ? `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}** (${assistant.name})`
+              : `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${shooter.ultimate}** **${shooter.name}**`;
+          } else if (isPassUltActive) {
+            // Se inserta el "TO" entre el nombre de la ulti del pase y el rematador
+            text = `\`${min}'\` ⚽ <a:llamamorada:1545685043354279977> **${assistant.ultimate} To ${shooter.name}** (${assistant.name})`;
+          } else {
+            text = assistant
+              ? `\`${min}'\` ⚽ **${shooter.name}** (${assistant.name})`
+              : `\`${min}'\` ⚽ **${shooter.name}**`;
+          }
 
           allEvents.push({
             minute: min,
@@ -819,7 +911,15 @@ client.on("interactionCreate", async (interaction) => {
             team: isHomeAttacking ? "home" : "away",
           });
         } else if (gk && Math.random() < 0.6) {
-          const text = `\`${min}'\` 🧤 **${gk.name}**`;
+          let text = "";
+          if (isGkUlt) {
+            text = `\`${min}'\` 🧤 <a:llamamorada:1545685043354279977> **${gk.ultimate}** **${gk.name}**`;
+          } else if (isPassUltActive) {
+            text = `\`${min}'\` 🧤 **${gk.name}** Saved the shot after <a:llamamorada:1545685043354279977> **${assistant.ultimate} To ${shooter.name}**`;
+          } else {
+            text = `\`${min}'\` 🧤 **${gk.name}**`;
+          }
+
           allEvents.push({
             minute: min,
             text,

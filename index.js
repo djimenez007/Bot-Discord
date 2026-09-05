@@ -57,21 +57,13 @@ const PACK_ICONS = {
   common: "<:basiccard:1545312601439993936>",
 };
 
-// Iconos específicos para los sobres en la tienda
-const SHOP_ICONS = {
-  mythic: "<:roja:1545273033156198410>",
-  legendary: "<:oro:1545273031159717939>",
-  epic: "<:morado:1545273030157013012>",
-  rare: "<:rare:1545276388251009026>",
-  common: "<:gris:1545273032233320478>",
-};
-
+// Iconos específicos para los sobres en la tienda (utilizan los mismos de PACK_ICONS)
 const shopPacks = [
-  { id: "mythic", icon: SHOP_ICONS.mythic, name: "Mythic Pack", minOvr: 99, maxOvr: 110, price: 5000000, description: "Contains cards between 99 - 110 OVR.", stock: 3 },
-  { id: "legendary", icon: SHOP_ICONS.legendary, name: "Legendary Pack", minOvr: 90, maxOvr: 98, price: 2000000, description: "Contains cards between 90 - 98 OVR.", stock: 5 },
-  { id: "epic", icon: SHOP_ICONS.epic, name: "Epic Pack", minOvr: 83, maxOvr: 89, price: 800000, description: "Contains cards between 83 - 89 OVR.", stock: 10 },
-  { id: "rare", icon: SHOP_ICONS.rare, name: "Rare Pack", minOvr: 75, maxOvr: 82, price: 300000, description: "Contains cards between 75 - 82 OVR.", stock: 15 },
-  { id: "common", icon: SHOP_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR.", stock: 25 },
+  { id: "mythic", icon: PACK_ICONS.mythic, name: "Mythic Pack", minOvr: 99, maxOvr: 110, price: 5000000, description: "Contains cards between 99 - 110 OVR.", stock: 3 },
+  { id: "legendary", icon: PACK_ICONS.legendary, name: "Legendary Pack", minOvr: 90, maxOvr: 98, price: 2000000, description: "Contains cards between 90 - 98 OVR.", stock: 5 },
+  { id: "epic", icon: PACK_ICONS.epic, name: "Epic Pack", minOvr: 83, maxOvr: 89, price: 800000, description: "Contains cards between 83 - 89 OVR.", stock: 10 },
+  { id: "rare", icon: PACK_ICONS.rare, name: "Rare Pack", minOvr: 75, maxOvr: 82, price: 300000, description: "Contains cards between 75 - 82 OVR.", stock: 15 },
+  { id: "common", icon: PACK_ICONS.common, name: "Common Pack", minOvr: 65, maxOvr: 74, price: 100000, description: "Contains cards between 65 - 74 OVR.", stock: 25 },
 ];
 
 function getPackIconByOvr(ovr) {
@@ -199,6 +191,16 @@ const commands = [
         .setDescription("Name of the player you have 3 or more copies of")
         .setRequired(true)
     ),
+  new SlashCommandBuilder()
+    .setName("card_info")
+    .setDescription("Display detailed information about a specific card.")
+    .addStringOption((option) =>
+      option
+        .setName("card")
+        .setDescription("Name of the card you want to inspect")
+        .setRequired(true)
+        .setAutocomplete(true)
+    ),
 ].map((command) => command.toJSON());
 
 client.once("ready", async () => {
@@ -304,6 +306,32 @@ client.on("interactionCreate", async (interaction) => {
       }
     }
 
+    if (interaction.commandName === "card_info" && focusedOption.name === "card") {
+      const focusedValue = focusedOption.value.toLowerCase();
+
+      try {
+        const cardsList = db
+          .prepare(
+            `
+            SELECT name, pos, overall 
+            FROM cards 
+            WHERE LOWER(name) LIKE ?
+            LIMIT 25
+          `
+          )
+          .all(`%${focusedValue}%`);
+
+        const choices = cardsList.map((card) => ({
+          name: `${card.name} [${card.pos}] - OVR ${card.overall}`,
+          value: card.name,
+        }));
+
+        await interaction.respond(choices);
+      } catch (error) {
+        console.error("Error in autocomplete for /card_info:", error);
+      }
+    }
+
     if (interaction.commandName === "shop" && focusedOption.name === "buy") {
       const focusedValue = focusedOption.value.toLowerCase();
       const filtered = shopPacks.filter(
@@ -324,6 +352,79 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "card_info") {
+    try {
+      await interaction.deferReply();
+
+      const cardNameInput = interaction.options.getString("card").trim();
+
+      const card = db
+        .prepare("SELECT * FROM cards WHERE LOWER(name) = LOWER(?) LIMIT 1")
+        .get(cardNameInput);
+
+      if (!card) {
+        return interaction.editReply({
+          content: `❌ Could not find any card named \`${cardNameInput}\`.`,
+        });
+      }
+
+      const monedaIcon = "<:moneda:1545283928515022909>";
+      const habilities = "<:estrella:1545228638822203412>";
+      const categoryStarsDisplay = getCategoryStars(card.category);
+      const packIcon = getPackIconByOvr(card.overall);
+
+      const embed = new EmbedBuilder()
+        .setTitle(`${card.name} ${packIcon}`)
+        .setColor("#FFD700")
+        .addFields(
+          { name: "POS", value: `\`${card.pos}\``, inline: true },
+          { name: "OVR", value: `\`${card.overall}\``, inline: true },
+          { name: "Rarity", value: `\`${card.rarity ? card.rarity.toUpperCase() : "N/A"}\``, inline: true },
+          { name: "Category", value: `${categoryStarsDisplay}`, inline: true },
+          { name: `${habilities}Passive`, value: `\`${card.passive || "None"}\``, inline: false },
+          { name: `${habilities}Ultimate`, value: `\`${card.ultimate || "None"}\``, inline: false },
+          {
+            name: "Market Value",
+            value: `${monedaIcon} \`${formatPrice(card.price)}\``,
+            inline: false,
+          }
+        );
+
+      const files = [];
+      const cardImgSrc = card.image_url || card.image;
+      if (cardImgSrc) {
+        try {
+          if (cardImgSrc.startsWith("http")) {
+            embed.setImage(encodeURI(cardImgSrc));
+          } else {
+            const imagePath = path.join(__dirname, "assets", path.basename(cardImgSrc));
+            if (fs.existsSync(imagePath)) {
+              const attachment = new AttachmentBuilder(imagePath, { name: path.basename(cardImgSrc) });
+              files.push(attachment);
+              embed.setImage(`attachment://${path.basename(cardImgSrc)}`);
+            }
+          }
+        } catch (err) {
+          console.error(`❌ Error rendering image for card_info (${card.name}):`, err);
+        }
+      }
+
+      await interaction.editReply({ embeds: [embed], files });
+    } catch (error) {
+      console.error("Error in /card_info:", error);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({
+          content: "❌ An error occurred while retrieving card information.",
+        });
+      } else {
+        await interaction.reply({
+          content: "❌ An error occurred while retrieving card information.",
+          flags: 64,
+        });
+      }
+    }
+  }
 
   if (interaction.commandName === "team") {
     try {
@@ -348,15 +449,32 @@ client.on("interactionCreate", async (interaction) => {
 
       ctx.drawImage(pitchImage, 0, 0, canvas.width, canvas.height);
 
+      const lineupText = [];
+
       if (squad) {
+        const positionLabels = {
+          gk_id: "GK",
+          lb_id: "LB",
+          rb_id: "RB",
+          cm_id: "CM",
+          lf_id: "LF",
+          cf_id: "CF",
+          rf_id: "RF"
+        };
+
         for (const [posKey, coords] of Object.entries(POSITIONS_MAP)) {
           const cardId = squad[posKey];
+          const posLabel = positionLabels[posKey] || posKey;
+
           if (cardId) {
             const card = db
               .prepare("SELECT * FROM cards WHERE card_id = ?")
               .get(cardId);
 
             if (card) {
+              const packIcon = getPackIconByOvr(card.overall);
+              lineupText.push(`**${posLabel}:** ${packIcon} **${card.name}** - OVR \`${card.overall}\``);
+
               const cardImgSrc = card.image_url || card.image;
               if (cardImgSrc) {
                 try {
@@ -378,9 +496,15 @@ client.on("interactionCreate", async (interaction) => {
                   );
                 }
               }
+            } else {
+              lineupText.push(`**${posLabel}:** *Empty*`);
             }
+          } else {
+            lineupText.push(`**${posLabel}:** *Empty*`);
           }
         }
+      } else {
+        lineupText.push("*No squad configured yet.*");
       }
 
       const buffer = canvas.toBuffer("image/png");
@@ -391,6 +515,7 @@ client.on("interactionCreate", async (interaction) => {
       const embed = new EmbedBuilder()
         .setTitle(`📋 ${interaction.user.username}'s Lineup`)
         .setColor("#2ECC71")
+        .setDescription(lineupText.join("\n"))
         .setImage("attachment://squad_pitch.png");
 
       await interaction.editReply({ embeds: [embed], files: [attachment] });
@@ -890,6 +1015,31 @@ client.on("interactionCreate", async (interaction) => {
         const defendingTeam = isHomeAttacking ? awayTeam : homeTeam;
         const defStats = isHomeAttacking ? awayPow : homePow;
 
+        const dribblerObj = selectPlayerByStatAndRating(attackingTeam, "dri", ["cm", "lf", "rf", "cf"]);
+        const dribbler = dribblerObj ? dribblerObj.card : null;
+        const dribblerPos = dribblerObj ? dribblerObj.pos : null;
+        const dribblerUltConfig = dribbler && dribbler.ultimate ? SKILL_EFFECTS[dribbler.ultimate] : null;
+        const ultChanceDribble = (!hasUltOccurred && min > 60) ? 1.0 : 0.60;
+
+        if (
+          isHomeAttacking &&
+          dribbler &&
+          dribbler.ultimate &&
+          dribblerUltConfig &&
+          dribblerUltConfig.type === "dribble" &&
+          dribblerUltConfig.pos.includes(dribblerPos) &&
+          Math.random() < ultChanceDribble
+        ) {
+          hasUltOccurred = true;
+          allEvents.push({
+            minute: min,
+            type: "dribble_event",
+            dribbler: dribbler,
+            team: "home"
+          });
+          continue;
+        }
+
         const defenderObj = selectPlayerByStatAndRating(defendingTeam, "def", ["lb", "rb", "cm"]);
         const defender = defenderObj ? defenderObj.card : null;
         const defenderPos = defenderObj ? defenderObj.pos : null;
@@ -1089,6 +1239,88 @@ client.on("interactionCreate", async (interaction) => {
         while (allEvents.length > 0 && allEvents[0].minute === min) {
           const event = allEvents.shift();
           const isFirstHalf = event.minute <= 45;
+
+          if (event.type === "dribble_event") {
+            const row = new ActionRowBuilder().addComponents(
+              new ButtonBuilder()
+                .setCustomId("dribble_left")
+                .setLabel("Left")
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId("dribble_center")
+                .setLabel("Center")
+                .setStyle(ButtonStyle.Primary),
+              new ButtonBuilder()
+                .setCustomId("dribble_right")
+                .setLabel("Right")
+                .setStyle(ButtonStyle.Primary)
+            );
+
+            const eventEmbed = new EmbedBuilder()
+              .setTitle("<a:llamaroja:1545925021376061602> Legendary Dribble!")
+              .setColor("#E74C3C")
+              .setDescription(
+                `**${event.dribbler.name}** starts a Legendary Dribble! Which way do you cut?`
+              );
+
+            const msg = await interaction.editReply({
+              embeds: [buildEmbed(`${min}'`, `Live (${min}')`), eventEmbed],
+              components: [row],
+            });
+
+            const directions = ["dribble_left", "dribble_center", "dribble_right"];
+            const cpuChoice = directions[Math.floor(Math.random() * directions.length)];
+
+            try {
+              const filter = (i) => i.user.id === homeUser.id;
+              const confirmation = await msg.awaitMessageComponent({
+                filter,
+                time: 5000,
+              });
+
+              const userChoice = confirmation.customId;
+              await confirmation.deferUpdate().catch(() => {});
+
+              if (userChoice !== cpuChoice) {
+                // Seleccionar al delantero/atacante que recibe la asistencia
+                const shooterObj =
+                  selectPlayerByStatAndRating(homeTeam, "sho", ["cf", "lf", "rf", "cm"]) ||
+                  { card: homeTeam.cf || event.dribbler };
+
+                const shooter = shooterObj.card;
+
+                // Texto del regate legendario
+                const dribbleText = `\`${min}'\` <a:llamaroja:1545925021376061602> **${event.dribbler.ultimate}** **${event.dribbler.name}** breaks the defender's ankles and assists for an easy goal!`;
+                
+                // Texto clásico de gol con el rematador y la asistencia
+                const goalText = `\`${min}'\` ⚽ **${shooter.name}** (${event.dribbler.name})`;
+
+                currentHomeGoals++;
+
+                if (isFirstHalf) {
+                  homeHtEvents.push(dribbleText);
+                  homeHtEvents.push(goalText);
+                } else {
+                  homeFtEvents.push(dribbleText);
+                  homeFtEvents.push(goalText);
+                }
+              } else {
+                const text = `\`${min}'\` 🛑 **${event.dribbler.name}** attempted a Legendary Dribble but was read and tackled.`;
+                if (isFirstHalf) homeHtEvents.push(text);
+                else homeFtEvents.push(text);
+              }
+            } catch (err) {
+              const text = `\`${min}'\` 🛑 **${event.dribbler.name}** hesitated for too long and lost the opportunity to dribble.`;
+              if (isFirstHalf) homeHtEvents.push(text);
+              else homeFtEvents.push(text);
+            }
+
+            await interaction.editReply({
+              embeds: [buildEmbed(`${min}'`, `Live (${min}')`)],
+              components: [],
+            });
+            continue;
+          }
 
           if (event.team === "home") {
             if (event.type === "goal") currentHomeGoals++;
@@ -1419,7 +1651,7 @@ client.on("interactionCreate", async (interaction) => {
 
       shopPacks.forEach((pack) => {
         descriptionText +=
-          `**${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
+          `${pack.icon} **${pack.name}** [\`${pack.minOvr} - ${pack.maxOvr} OVR\`] - **${formatPrice(pack.price)}** ${coinIcon}\n` +
           `> ${pack.description}\n\n`;
       });
 

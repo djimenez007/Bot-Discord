@@ -453,16 +453,27 @@ client.on("interactionCreate", async (interaction) => {
 
       if (squad) {
         const positionLabels = {
-          gk_id: "GK",
+          cf_id: "CF",
+          lf_id: "LF",
+          rf_id: "RF",
+          cm_id: "CM",
           lb_id: "LB",
           rb_id: "RB",
-          cm_id: "CM",
-          lf_id: "LF",
-          cf_id: "CF",
-          rf_id: "RF"
+          gk_id: "GK"
         };
 
-        for (const [posKey, coords] of Object.entries(POSITIONS_MAP)) {
+        const orderedPositions = [
+          "cf_id",
+          "lf_id",
+          "rf_id",
+          "cm_id",
+          "lb_id",
+          "rb_id",
+          "gk_id"
+        ];
+
+        for (const posKey of orderedPositions) {
+          const coords = POSITIONS_MAP[posKey];
           const cardId = squad[posKey];
           const posLabel = positionLabels[posKey] || posKey;
 

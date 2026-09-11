@@ -218,13 +218,13 @@ client.once("ready", async () => {
 });
 
 const POSITIONS_MAP = {
-  gk_id: { x: 755, y: 650, width: 180, height: 260 },
-  lb_id: { x: 480, y: 500, width: 180, height: 260 },
-  rb_id: { x: 1050, y: 500, width: 180, height: 260 },
-  cm_id: { x: 755, y: 350, width: 180, height: 260 },
-  lf_id: { x: 500, y: 150, width: 180, height: 260 },
-  cf_id: { x: 755, y: 100, width: 180, height: 260 },
-  rf_id: { x: 1060, y: 150, width: 180, height: 260 },
+  gk_id: { x: 755, y: 650, width: 185, height: 265 },
+  lb_id: { x: 480, y: 500, width: 185, height: 265 },
+  rb_id: { x: 1050, y: 500, width: 185, height: 265 },
+  cm_id: { x: 755, y: 350, width: 185, height: 265 },
+  lf_id: { x: 500, y: 150, width: 185, height: 265 },
+  cf_id: { x: 755, y: 100, width: 185, height: 265 },
+  rf_id: { x: 1060, y: 150, width: 185, height: 265 },
 };
 
 const POS_TO_COLUMN = {
@@ -891,7 +891,7 @@ client.on("interactionCreate", async (interaction) => {
     });
   }
 
-  if (interaction.commandName === "match") {
+ if (interaction.commandName === "match") {
     const homeUser = interaction.user;
     const awayUser = interaction.options.getUser("opponent");
 
@@ -1019,12 +1019,40 @@ client.on("interactionCreate", async (interaction) => {
 
     let hasUltOccurred = false;
 
+    // --- RASTREO DE ESTADÍSTICAS DEL PARTIDO ---
+    const matchStats = {
+      home: { shots: 0, shotsOnTarget: 0, passes: 0, saves: 0, tackles: 0 },
+      away: { shots: 0, shotsOnTarget: 0, passes: 0, saves: 0, tackles: 0 }
+    };
+
+    const playerStats = new Map();
+    const getPlayerTracker = (player, pos, teamKey) => {
+      if (!player) return null;
+      const key = `${teamKey}_${player.card_id || player.name}`;
+      if (!playerStats.has(key)) {
+        playerStats.set(key, {
+          name: player.name,
+          pos: pos ? pos.toUpperCase() : "CARD",
+          teamKey,
+          goals: 0,
+          assists: 0,
+          saves: 0,
+          tackles: 0,
+          rating: 6.0
+        });
+      }
+      return playerStats.get(key);
+    };
+
     for (let min = 1; min <= 90; min++) {
       if (Math.random() < 0.14) {
         const isHomeAttacking = Math.random() < homeChance;
         const attackingTeam = isHomeAttacking ? homeTeam : awayTeam;
         const defendingTeam = isHomeAttacking ? awayTeam : homeTeam;
         const defStats = isHomeAttacking ? awayPow : homePow;
+        
+        const atkKey = isHomeAttacking ? "home" : "away";
+        const defKey = isHomeAttacking ? "away" : "home";
 
         const dribblerObj = selectPlayerByStatAndRating(attackingTeam, "dri", ["cm", "lf", "rf", "cf"]);
         const dribbler = dribblerObj ? dribblerObj.card : null;
@@ -1046,6 +1074,7 @@ client.on("interactionCreate", async (interaction) => {
             minute: min,
             type: "dribble_event",
             dribbler: dribbler,
+            dribblerPos: dribblerPos,
             team: "home"
           });
           continue;
@@ -1067,6 +1096,13 @@ client.on("interactionCreate", async (interaction) => {
             hasUltOccurred = true;
             defEmoji = "<a:llamamorada:1545685043354279977>";
             ultText = `<a:llamamorada:1545685043354279977> **${defender.ultimate}** `;
+          }
+
+          matchStats[defKey].tackles++;
+          const defTrack = getPlayerTracker(defender, defenderPos, defKey);
+          if (defTrack) {
+            defTrack.tackles++;
+            defTrack.rating += 0.4;
           }
 
           allEvents.push({
@@ -1134,6 +1170,9 @@ client.on("interactionCreate", async (interaction) => {
         const defensiveBlock = defStats.def / 10 + (Math.random() * 10 - 5);
         if (shootPower < defensiveBlock - 15) continue;
 
+        matchStats[atkKey].shots++;
+        if (assistant) matchStats[atkKey].passes += 2;
+
         const gkUltConfig = gk && gk.ultimate ? SKILL_EFFECTS[gk.ultimate] : null;
         const ultChanceGk = (!hasUltOccurred && min > 60) ? 1.0 : 0.65;
         const isGkUlt = gk && gk.ultimate && gkUltConfig && gkUltConfig.type === "save" && gkUltConfig.pos.includes("gk") && Math.random() < ultChanceGk;
@@ -1155,7 +1194,22 @@ client.on("interactionCreate", async (interaction) => {
         const gkDefense = gkQuality + (Math.random() * 16 - 8);
 
         if (shootPower > gkDefense) {
+          matchStats[atkKey].shotsOnTarget++;
           let text = "";
+
+          const shooterTrack = getPlayerTracker(shooter, shooterPos, atkKey);
+          if (shooterTrack) {
+            shooterTrack.goals++;
+            shooterTrack.rating += 1.2;
+          }
+
+          if (assistant) {
+            const assTrack = getPlayerTracker(assistant, assistantPos, atkKey);
+            if (assTrack) {
+              assTrack.assists++;
+              assTrack.rating += 0.7;
+            }
+          }
 
           if (isShooterUlt) {
             text = assistant 
@@ -1176,6 +1230,15 @@ client.on("interactionCreate", async (interaction) => {
             team: isHomeAttacking ? "home" : "away",
           });
         } else if (gk && Math.random() < 0.6) {
+          matchStats[atkKey].shotsOnTarget++;
+          matchStats[defKey].saves++;
+
+          const gkTrack = getPlayerTracker(gk, "gk", defKey);
+          if (gkTrack) {
+            gkTrack.saves++;
+            gkTrack.rating += 0.5;
+          }
+
           let text = "";
           if (isGkUlt) {
             text = `\`${min}'\` 🧤 <a:llamamorada:1545685043354279977> **${gk.ultimate}** **${gk.name}**`;
@@ -1245,6 +1308,39 @@ client.on("interactionCreate", async (interaction) => {
         .setDescription(description);
     };
 
+    // --- FUNCIÓN PARA GENERAR EL EMBED DE ESTADÍSTICAS Y MVP ---
+    const buildStatsEmbed = () => {
+      const totalPassesHome = Math.max(matchStats.home.passes, 120 + currentHomeGoals * 15);
+      const totalPassesAway = Math.max(matchStats.away.passes, 110 + currentAwayGoals * 15);
+      const totalPasses = totalPassesHome + totalPassesAway;
+      const homePossession = Math.round((totalPassesHome / totalPasses) * 100);
+      const awayPossession = 100 - homePossession;
+
+      // Calcular MVP acumulando estadísticas de todos los jugadores que participaron
+      let mvp = null;
+      let highestRating = -1;
+
+      for (const track of playerStats.values()) {
+        const finalRating = Math.min(10, Math.max(5.0, track.rating)).toFixed(1);
+        if (parseFloat(finalRating) > highestRating) {
+          highestRating = parseFloat(finalRating);
+          mvp = { ...track, finalRating };
+        }
+      }
+
+      const mvpText = mvp 
+        ? `⭐ **MVP:** ${mvp.name} [${mvp.pos}] (${mvp.teamKey === "home" ? homeUser.username : awayUser.username})\n⭐ **Rating:** \`${mvp.finalRating}\` | ⚽ Goals: \`${mvp.goals}\` | 🅰️ Assists: \`${mvp.assists}\` | 🧤 Saves: \`${mvp.saves}\``
+        : "⭐ **MVP:** N/A";
+
+      const statsDescription = 
+        `${mvpText}`;
+
+      return new EmbedBuilder()
+        .setTitle(`📈 Match Summary & Stats`)
+        .setColor("#2B2D31")
+        .setDescription(statsDescription);
+    };
+
     try {
       for (let min = 1; min <= 90; min++) {
         while (allEvents.length > 0 && allEvents[0].minute === min) {
@@ -1293,20 +1389,33 @@ client.on("interactionCreate", async (interaction) => {
               await confirmation.deferUpdate().catch(() => {});
 
               if (userChoice !== cpuChoice) {
-                // Seleccionar al delantero/atacante que recibe la asistencia
                 const shooterObj =
                   selectPlayerByStatAndRating(homeTeam, "sho", ["cf", "lf", "rf", "cm"]) ||
-                  { card: homeTeam.cf || event.dribbler };
+                  { card: homeTeam.cf || event.dribbler, pos: "cf" };
 
                 const shooter = shooterObj.card;
 
-                // Texto del regate legendario
                 const dribbleText = `\`${min}'\` <a:llamaroja:1545925021376061602> **${event.dribbler.ultimate}** **${event.dribbler.name}** breaks the defender's ankles and assists for an easy goal!`;
-                
-                // Texto clásico de gol con el rematador y la asistencia
                 const goalText = `\`${min}'\` ⚽ **${shooter.name}** (${event.dribbler.name})`;
 
                 currentHomeGoals++;
+
+                // Track Stats del Dribble
+                matchStats.home.shots++;
+                matchStats.home.shotsOnTarget++;
+                matchStats.home.passes += 2;
+
+                const dTrack = getPlayerTracker(event.dribbler, event.dribblerPos, "home");
+                if (dTrack) {
+                  dTrack.assists++;
+                  dTrack.rating += 1.0;
+                }
+
+                const sTrack = getPlayerTracker(shooter, shooterObj.pos, "home");
+                if (sTrack) {
+                  sTrack.goals++;
+                  sTrack.rating += 1.2;
+                }
 
                 if (isFirstHalf) {
                   homeHtEvents.push(dribbleText);
@@ -1316,6 +1425,7 @@ client.on("interactionCreate", async (interaction) => {
                   homeFtEvents.push(goalText);
                 }
               } else {
+                matchStats.away.tackles++;
                 const text = `\`${min}'\` 🛑 **${event.dribbler.name}** attempted a Legendary Dribble but was read and tackled.`;
                 if (isFirstHalf) homeHtEvents.push(text);
                 else homeFtEvents.push(text);
@@ -1353,8 +1463,9 @@ client.on("interactionCreate", async (interaction) => {
         }
 
         if (min === 90) {
+          // Al terminar el partido se envía el embed del partido junto con el Embed de Estadísticas y MVP
           await interaction.editReply({
-            embeds: [buildEmbed("90'", "Final", true)],
+            embeds: [buildEmbed("90'", "Final", true), buildStatsEmbed()],
           });
           break;
         }
@@ -1368,7 +1479,7 @@ client.on("interactionCreate", async (interaction) => {
     } catch (err) {
       console.error("Error during match simulation:", err);
     }
-  }
+}
 
   if (interaction.commandName === "sell") {
     try {

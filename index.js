@@ -218,13 +218,13 @@ client.once("ready", async () => {
 });
 
 const POSITIONS_MAP = {
-  gk_id: { x: 755, y: 650, width: 185, height: 265 },
-  lb_id: { x: 480, y: 500, width: 185, height: 265 },
-  rb_id: { x: 1050, y: 500, width: 185, height: 265 },
-  cm_id: { x: 755, y: 350, width: 185, height: 265 },
-  lf_id: { x: 500, y: 150, width: 185, height: 265 },
-  cf_id: { x: 755, y: 100, width: 185, height: 265 },
-  rf_id: { x: 1060, y: 150, width: 185, height: 265 },
+  gk_id: { x: 755, y: 650, width: 260, height: 265 },
+  lb_id: { x: 480, y: 500, width: 260, height: 265 },
+  rb_id: { x: 1000, y: 500, width: 260, height: 265 },
+  cm_id: { x: 755, y: 350, width: 260, height: 265 },
+  lf_id: { x: 500, y: 150, width: 260, height: 265 },
+  cf_id: { x: 755, y: 100, width: 260, height: 265 },
+  rf_id: { x: 1060, y: 150, width: 260, height: 265 },
 };
 
 const POS_TO_COLUMN = {
